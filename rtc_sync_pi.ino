@@ -26,6 +26,7 @@
 #define WIFI_CONNECT_TIMEOUT_MS      30000 // WiFi接続タイムアウト時間(ms)
 #define NTP_PACKET_SIZE              48   // NTPパケットサイズ
 #define E2P_I2C_ADDR                 0x57 // 24C32 I2Cアドレス 0x57
+#define RTC_I2C_ADDR                 0x68 // DS3231 I2Cアドレス 0x68
 #define E2P_PAGE_BYTE_SIZE           32   // 24C32 ページサイズ 32バイト
 #define E2P_WIFI_CONFIG_MAKER_LEN    30   // WiFi設定保存用マーカーの文字列長
 //---------------------------------------------------------------------------
@@ -267,36 +268,28 @@ static void print_time_date(const DateTime &dt)
 //---------------------------------------------------------------------------
 void setup()
 {
-    Serial.begin(115200);
-    delay(100);
-    Serial.println();
-    Serial.println("RTC sync for Pico W / Pico 2 W");
+    bool is_e2p_connect = false;
+    bool is_rtc_connect = false;
 
+    Serial.begin(115200);
+
+    // I2CでEEPROMとRTCの接続確認
     Wire.begin();
-    bool eeprom_present = false;
     Wire.beginTransmission(E2P_I2C_ADDR);
     if (Wire.endTransmission() == 0)
-        eeprom_present = true;
+        is_e2p_connect = true;
 
-    if (!eeprom_present) {
-        Serial.println("EEPROM (24C32) not found at Addr 0x57 -> rebooting");
+    Wire.beginTransmission(RTC_I2C_ADDR);
+    if (Wire.endTransmission() == 0)
+        is_rtc_connect = true;
+
+    if ((is_e2p_connect != true) || (is_rtc_connect != true)) {
         rp2040.reboot();
     }
 
     s_is_e2p_wifi_config = e2p_check_wifi_config(e2p_stored_ssid, e2p_stored_password);
     if (s_is_e2p_wifi_config != false) {
         s_is_wifi_config_data = true;
-        Serial.println("EEPROM, Found Stored WiFi Config Data.");
-    } else {
-        Serial.println("EEPROM, Not Stored WiFi Config Data.");
-    }
-
-    if (!s_rtc.begin()) {
-        Serial.println("Couldn't find RTC (DS3231)");
-    } else {
-        if (s_rtc.lostPower()) {
-            Serial.println("RTC lost power - will set from NTP if available");
-        }
     }
 }
 
