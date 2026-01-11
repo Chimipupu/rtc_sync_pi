@@ -25,6 +25,7 @@
 // [定数]
 #define WIFI_CONNECT_TIMEOUT_MS      30000 // WiFi接続タイムアウト時間(ms)
 #define NTP_PACKET_SIZE              48   // NTPパケットサイズ
+#define JST_UTC_OFFSET_SEC           (9 * 3600) // JSTのUTCオフセット秒数(+9時間 * 3600秒)
 #define E2P_I2C_ADDR                 0x57 // 24C32 I2Cアドレス 0x57
 #define RTC_I2C_ADDR                 0x68 // DS3231 I2Cアドレス 0x68
 #define E2P_PAGE_BYTE_SIZE           32   // 24C32 ページサイズ 32バイト
@@ -195,13 +196,13 @@ static bool rtc_and_ntp_sync(const String &ssid, const String &password)
             Serial.println(WiFi.localIP());
             uint32_t epoch;
             if (get_ntp_time(epoch, 5000)) {
-                const uint32_t JST_OFFSET = 9UL * 3600UL;
-                uint32_t epoch_jst = epoch + JST_OFFSET;
+                uint32_t epoch_jst = epoch + JST_UTC_OFFSET_SEC;
                 DateTime nowJst(epoch_jst);
-                Serial.println("NTP time (JST):");
-                print_time_date(nowJst);
                 s_rtc.adjust(nowJst);
-                Serial.println("RTC updated. RTC time now:");
+                Serial.println("NTP and RTC Synced!");
+                Serial.print("NTP time (JST):");
+                print_time_date(nowJst);
+                Serial.print("RTC time (JST):");
                 print_time_date(s_rtc.now());
                 ret = true;
             } else {
@@ -247,7 +248,10 @@ static bool get_ntp_time(uint32_t &result, uint32_t timeout_ms)
         if (size >= NTP_PACKET_SIZE)
         {
             s_udp.read(s_packet_buf, NTP_PACKET_SIZE);
-            uint32_t secsSince1900 = ((uint32_t)s_packet_buf[40] << 24) | ((uint32_t)s_packet_buf[41] << 16) | ((uint32_t)s_packet_buf[42] << 8) | ((uint32_t)s_packet_buf[43]);
+            uint32_t secsSince1900 = ((uint32_t)s_packet_buf[40] << 24) | \
+                                    ((uint32_t)s_packet_buf[41] << 16) | \
+                                    ((uint32_t)s_packet_buf[42] << 8) | \
+                                    ((uint32_t)s_packet_buf[43]);
             const uint32_t seventyYears = 2208988800UL;
             result = secsSince1900 - seventyYears; // UNIX epoch
             return true;
@@ -259,10 +263,8 @@ static bool get_ntp_time(uint32_t &result, uint32_t timeout_ms)
 
 static void print_time_date(const DateTime &dt)
 {
-    char buf[32];
-    sprintf(buf, "%04d/%02d/%02d %02d:%02d:%02d",
-            dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second());
-    Serial.println(buf);
+    Serial.printf("%04d/%02d/%02d %02d:%02d:%02d\n",
+                    dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(), dt.second());
 }
 
 //---------------------------------------------------------------------------
@@ -385,7 +387,7 @@ void loop()
                 // コマンド: "rtc" -> DS3231時刻表示
                 else if (line_str.equalsIgnoreCase("rtc")) {
                     Serial.println();
-                    Serial.println("RTC time:");
+                    Serial.print("RTC time:");
                     print_time_date(s_rtc.now());
                 }
                 // Unknown command
