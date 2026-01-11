@@ -29,6 +29,7 @@
 #define NTP_LOCAL_PORT               2390  // UDPローカルポート (s_udp.begin)
 #define NTP_POLL_DELAY_MS            5     // NTP受信ポーリング間隔(ms)
 #define NTP_TIMEOUT_MS               5000  // get_ntp_time のタイムアウト既定値(ms)
+#define SEC_1970_TO_1900             2208988800UL // 1970年から1900年までの秒数
 #define JST_UTC_OFFSET_SEC           (9 * 3600) // JSTのUTCオフセット秒数(+9時間 * 3600秒)
 #define E2P_I2C_ADDR                 0x57 // 24C32 I2Cアドレス 0x57
 #define RTC_I2C_ADDR                 0x68 // DS3231 I2Cアドレス 0x68
@@ -246,12 +247,25 @@ static bool get_ntp_time(uint32_t &result, uint32_t timeout_ms)
         if (size >= NTP_PACKET_SIZE)
         {
             s_udp.read(s_packet_buf, NTP_PACKET_SIZE);
+
+            // 1900年1月1日からの経過秒数を取得
+            // NOTE: NTPパケットのバイト40～43が秒数のビッグエンディアン表現
             uint32_t secsSince1900 = ((uint32_t)s_packet_buf[40] << 24) | \
                                     ((uint32_t)s_packet_buf[41] << 16) | \
                                     ((uint32_t)s_packet_buf[42] << 8) | \
                                     ((uint32_t)s_packet_buf[43]);
-            const uint32_t seventyYears = 2208988800UL;
-            result = secsSince1900 - seventyYears; // UNIX epoch
+
+#if 1
+            // NTPからパケットが来るまでの遅延対策
+            // NOTE: バイト44は小数部の最上位バイト
+            // NOTE: 0x80 (128) は 0.5秒 に相当
+            if (s_packet_buf[44] >= 0x80) {
+                secsSince1900++; // 0.5秒以上なら1秒進める（四捨五入）
+            }
+#endif
+
+            // result = (1900年1月1日からの経過秒数) - (1970年1月1日からの経過秒数)
+            result = secsSince1900 - SEC_1970_TO_1900;
             return true;
         }
         // delay(NTP_POLL_DELAY_MS);
@@ -385,7 +399,7 @@ void loop()
                 // コマンド: "rtc" -> DS3231時刻表示
                 else if (line_str.equalsIgnoreCase("rtc")) {
                     Serial.println();
-                    Serial.print("RTC time:");
+                    Serial.print("RTC: ");
                     print_time_date(s_rtc.now());
                 }
                 // Unknown command
