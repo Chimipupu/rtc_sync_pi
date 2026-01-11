@@ -270,6 +270,7 @@ void setup()
 {
     bool is_e2p_connect = false;
     bool is_rtc_connect = false;
+    bool is_rtc_begin = false;
 
     Serial.begin(115200);
 
@@ -287,9 +288,17 @@ void setup()
         rp2040.reboot();
     }
 
+    // EEPROMからWiFi設定読み込み
     s_is_e2p_wifi_config = e2p_check_wifi_config(e2p_stored_ssid, e2p_stored_password);
     if (s_is_e2p_wifi_config != false) {
         s_is_wifi_config_data = true;
+    }
+
+    // RTC初期化
+    is_rtc_begin = s_rtc.begin();
+    if (is_rtc_begin != true) {
+        Serial.println("RTC DS3231 not found!");
+        // rp2040.reboot();
     }
 }
 
