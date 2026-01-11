@@ -24,12 +24,18 @@
 //---------------------------------------------------------------------------
 // [定数]
 #define WIFI_CONNECT_TIMEOUT_MS      30000 // WiFi接続タイムアウト時間(ms)
+#define WIFI_POLL_DELAY_MS           100   // WiFi接続ポーリング間隔(ms) - 短くすると接続待ちが細かくなる
 #define NTP_PACKET_SIZE              48   // NTPパケットサイズ
+#define NTP_LOCAL_PORT               2390  // UDPローカルポート (s_udp.begin)
+#define NTP_POLL_DELAY_MS            5     // NTP受信ポーリング間隔(ms)
+#define NTP_TIMEOUT_MS               5000  // get_ntp_time のタイムアウト既定値(ms)
 #define JST_UTC_OFFSET_SEC           (9 * 3600) // JSTのUTCオフセット秒数(+9時間 * 3600秒)
 #define E2P_I2C_ADDR                 0x57 // 24C32 I2Cアドレス 0x57
 #define RTC_I2C_ADDR                 0x68 // DS3231 I2Cアドレス 0x68
 #define E2P_PAGE_BYTE_SIZE           32   // 24C32 ページサイズ 32バイト
 #define E2P_WIFI_CONFIG_MAKER_LEN    30   // WiFi設定保存用マーカーの文字列長
+#define E2P_WRITE_DELAY_MS           5    // EEPROM バイト書き込み後の待ち(ms)
+#define SERIAL_LOOP_DELAY_MS         5    // メインループ末尾の待ち(ms)
 //---------------------------------------------------------------------------
 // [グローバル変数]
 // const char *p_ntp_primary_server = "pool.ntp.org";
@@ -73,7 +79,7 @@ static bool e2p_write_byte(uint16_t memAddr, const uint8_t *data, uint16_t len)
         if (Wire.endTransmission() != 0)
             return false;
         memAddr++;
-        delay(5);
+        delay(E2P_WRITE_DELAY_MS);
     }
     return true;
 }
@@ -175,7 +181,7 @@ static bool rtc_and_ntp_sync(const String &ssid, const String &password)
     wait_time_ms = millis();
     while (WiFi.status() != WL_CONNECTED)
     {
-        delay(500);
+        delay(WIFI_POLL_DELAY_MS);
         Serial.print('.');
 
         // WiFI接続タイムアウト
@@ -195,7 +201,7 @@ static bool rtc_and_ntp_sync(const String &ssid, const String &password)
             Serial.print("WiFi Connected! IP: ");
             Serial.println(WiFi.localIP());
             uint32_t epoch;
-            if (get_ntp_time(epoch, 5000)) {
+            if (get_ntp_time(epoch, NTP_TIMEOUT_MS)) {
                 uint32_t epoch_jst = epoch + JST_UTC_OFFSET_SEC;
                 DateTime nowJst(epoch_jst);
                 s_rtc.adjust(nowJst);
@@ -222,15 +228,7 @@ static bool rtc_and_ntp_sync(const String &ssid, const String &password)
 static void send_ntp_packet(const char *address)
 {
     memset(s_packet_buf, 0, NTP_PACKET_SIZE);
-    s_packet_buf[0] = 0b11100011; // LI, Version, Mode
-    s_packet_buf[1] = 0;          // Stratum
-    s_packet_buf[2] = 6;          // Polling
-    s_packet_buf[3] = 0xEC;       // Precision
-    s_packet_buf[12] = 49;
-    s_packet_buf[13] = 0x4E;
-    s_packet_buf[14] = 49;
-    s_packet_buf[15] = 52;
-
+    s_packet_buf[0] = 0xE3; // LI=11(警告), VN=100(Ver4), Mode=011(クライアント) -> 0xE3
     s_udp.beginPacket(address, 123); // NTP requests are to port 123
     s_udp.write(s_packet_buf, NTP_PACKET_SIZE);
     s_udp.endPacket();
@@ -239,7 +237,7 @@ static void send_ntp_packet(const char *address)
 static bool get_ntp_time(uint32_t &result, uint32_t timeout_ms)
 {
     // UDPローカルポートを初期化
-    s_udp.begin(2390);
+    s_udp.begin(NTP_LOCAL_PORT);
     send_ntp_packet(p_ntp_primary_server);
     uint32_t start = millis();
     while (millis() - start < timeout_ms)
@@ -256,7 +254,7 @@ static bool get_ntp_time(uint32_t &result, uint32_t timeout_ms)
             result = secsSince1900 - seventyYears; // UNIX epoch
             return true;
         }
-        delay(10);
+        // delay(NTP_POLL_DELAY_MS);
     }
     return false;
 }
@@ -405,5 +403,5 @@ void loop()
             Serial.print(c); // ローカルエコー
         }
     }
-    delay(5);
+    delay(SERIAL_LOOP_DELAY_MS);
 }
